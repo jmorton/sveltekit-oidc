@@ -12,16 +12,6 @@ import {
 } from '$env/static/private';
 
 /**
- * Cookie options for access and refresh tokens.
- */
-export const DefaultCookieOptions: CookieSerializeOptions & { path: string } = {
-	path: '/',
-	secure: true,
-	sameSite: 'strict',
-	maxAge: 60 * 60 * 24
-};
-
-/**
  * Initialize an OAuth2 client and fetches the OIDC configuration.
  *
  * @async
@@ -37,22 +27,6 @@ export async function init(): Promise<{ client: arctic.OAuth2Client; config: any
 }
 
 /**
- * Checks for an access token and redirects to the login page if not found.
- *
- * @param cookies
- * @param url
- * @returns
- */
-export function authorize(cookies: Cookies, url: URL): string {
-	const access_token = cookies.get('access_token');
-	if (!access_token) {
-		const goto = url.pathname + url.search;
-		throw redirect(303, `/auth/login?back=${encodeURIComponent(goto)}`);
-	}
-	return access_token;
-}
-
-/**
  * Decodes the access and refresh tokens from cookies.
  *
  * @param cookies
@@ -61,24 +35,23 @@ export function authorize(cookies: Cookies, url: URL): string {
 export function decode(cookies: Cookies): {
 	access_token?: JwtPayload | null;
 	refresh_token?: JwtPayload | null;
+	id_token?: JwtPayload | null;
 } {
 	try {
 		const access_cookie = cookies.get('access_token') || null;
 		const access_token = access_cookie && jwtDecode(access_cookie);
+		const id_cookie = cookies.get('id_token') || null;
+		const id_token = id_cookie && jwtDecode(id_cookie);
 		const refresh_cookie = cookies.get('refresh_token') || null;
 		const refresh_token = refresh_cookie && jwtDecode(refresh_cookie);
+		console.log({ id_token });
 		return {
 			access_token,
+			id_token,
 			refresh_token
 		};
 	} catch (error) {
 		console.error('Error decoding access token:', error);
 		return {};
 	}
-}
-
-export async function logout(cookies: Cookies): void {
-	const { client, config } = await init();
-	cookies.delete('access_token', { path: '/' });
-	cookies.delete('refresh_token', { path: '/' });
 }

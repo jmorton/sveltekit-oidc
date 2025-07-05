@@ -15,17 +15,17 @@ export const load: PageServerLoad = async ({ cookies, url }) => {
 	const back = url.searchParams.get('back') || '/';
 	cookies.set('back', back, {
 		httpOnly: true,
-		path: '/'
+		path: '/auth'
 	});
 
 	// Generate a code verifier and store it in a cookie
 	const verifier = arctic.generateCodeVerifier();
 	cookies.set('verifier', verifier, {
 		httpOnly: true,
-		path: '/',
+		path: '/auth',
 		secure: true,
-		sameSite: 'strict',
-		maxAge: 60 * 60 * 24
+		sameSite: 'lax',
+		maxAge: 300
 	});
 
 	// Generate the authorization URL.
@@ -41,6 +41,13 @@ export const load: PageServerLoad = async ({ cookies, url }) => {
 			verifier,
 			scopes
 		);
+		cookies.set('oidc_state', state, {
+			httpOnly: true,
+			sameSite: 'lax',
+			path: '/auth',
+			secure: true,
+			maxAge: 300
+		});
 	} catch (err) {
 		let explainer = 'Unknown error occurred while generating the authorization URL.';
 		if (err instanceof SyntaxError) {

@@ -1,12 +1,13 @@
 <script lang="ts">
 	import '../app.css';
-	import Auth from '$lib/components/Auth.svelte';
 	import { onMount } from 'svelte';
-	import { accessToken } from '$lib/stores/auth';
+	import { accessToken, idToken } from '$lib/stores/auth';
 	import { page } from '$app/state';
-	import TokenRefresh from '$lib/components/TokenRefresh.svelte';
+	import Auth from '$lib/components/auth/Nav.svelte';
+	import TokenRefresh from '$lib/components/auth/Refresh.svelte';
 
 	accessToken.set(page.data.access_token);
+	idToken.set(page.data.id_token);
 
 	export let data: {};
 

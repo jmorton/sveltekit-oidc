@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { init, DefaultCookieOptions } from '$lib/server/auth';
+import { init } from '$lib/server/auth';
 
 /**
  * Requests a new access and refresh token.
@@ -23,11 +23,13 @@ export const POST = async ({ cookies }) => {
 
 		const tokens = await client.refreshAccessToken(config.token_endpoint, refreshToken, scopes);
 
-		cookies.set('access_token', tokens.accessToken(), { ...DefaultCookieOptions, httpOnly: false });
-		cookies.set('refresh_token', tokens.refreshToken(), { ...DefaultCookieOptions, path: '/' });
+		cookies.set('id_token', tokens.accessToken(), { path: '/' });
+		cookies.set('access_token', tokens.accessToken(), { path: '/' });
+		cookies.set('refresh_token', tokens.refreshToken(), { path: '/auth' });
 
 		return json({
-			access_token: tokens.accessToken()
+			access_token: tokens.accessToken(),
+			id_token: tokens.idToken()
 		});
 	} catch (e) {
 		console.error('Error refreshing token:', e);

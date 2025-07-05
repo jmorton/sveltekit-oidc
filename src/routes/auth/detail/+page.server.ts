@@ -10,8 +10,8 @@ export const load: PageServerLoad = async ({ cookies }) => {
 	const verifier = cookies.get('verifier');
 
 	// Access and refresh tokens are present after the callback runs successfully.
-	const { access_token, refresh_token } = auth.decode(cookies);
+	const { access_token, id_token } = auth.decode(cookies);
 
 	// There is a risk to exposing the value of the refresh token in the client.
-	return { verifier, access_token, refresh_token: refresh_token };
+	return { verifier, access_token, id_token };
 };
