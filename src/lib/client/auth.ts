@@ -3,7 +3,6 @@ import { accessToken } from '$lib/stores/auth';
 
 export function expiresAt(token: any): Date | void {
 	if (token && token.exp) {
-		console.log('Token expiration time:', token.exp);
 		return new Date(token.exp * 1000);
 	} else {
 		throw new Error('Token does not have an expiration time');
@@ -11,13 +10,13 @@ export function expiresAt(token: any): Date | void {
 }
 
 export async function refreshAccessToken(): Promise<void> {
-	console.log('Refreshing access token...');
+	console.log('Refreshing access token');
 	const res = await fetch('/auth/refresh', { method: 'POST' });
 	if (res.ok) {
-		console.log('Access token refreshed successfully.');
 		const data = await res.json();
 		const token = jwtDecode(data.access_token);
 		accessToken.set(token);
+		console.log('Access token refreshed successfully');
 	} else if (res.status === 401) {
 		console.error('Unauthorized: Access token refresh failed. Please log in again.');
 		window.location.href = '/auth/login';

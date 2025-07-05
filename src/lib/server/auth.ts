@@ -2,6 +2,7 @@ import { redirect, type Cookies } from '@sveltejs/kit';
 import fetch from 'node-fetch';
 import * as arctic from 'arctic';
 import { jwtDecode, type JwtPayload } from 'jwt-decode';
+import type { CookieSerializeOptions } from 'cookie';
 
 import {
 	OIDC_WELL_KNOWN_URL,
@@ -9,6 +10,16 @@ import {
 	OIDC_CLIENT_SECRET,
 	OIDC_REDIRECT_URI
 } from '$env/static/private';
+
+/**
+ * Cookie options for access and refresh tokens.
+ */
+export const DefaultCookieOptions: CookieSerializeOptions & { path: string } = {
+	path: '/',
+	secure: true,
+	sameSite: 'strict',
+	maxAge: 60 * 60 * 24
+};
 
 /**
  * Initialize an OAuth2 client and fetches the OIDC configuration.

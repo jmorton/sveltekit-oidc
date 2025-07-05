@@ -1,6 +1,14 @@
 import { json } from '@sveltejs/kit';
-import { init } from '$lib/server/auth';
+import { init, DefaultCookieOptions } from '$lib/server/auth';
 
+/**
+ * Requests a new access and refresh token.
+ *
+ * This endpoint is intended to be called from the client at a regular interval.
+ *
+ * @param { cookies } - Expected to contain a 'refresh_token' cookie.
+ * @returns JSON response with new access token or error.
+ */
 export const POST = async ({ cookies }) => {
 	console.debug('/auth/refresh');
 
@@ -15,26 +23,20 @@ export const POST = async ({ cookies }) => {
 
 		const tokens = await client.refreshAccessToken(config.token_endpoint, refreshToken, scopes);
 
-		cookies.set('access_token', tokens.accessToken(), {
-			httpOnly: false,
-			path: '/',
-			secure: true,
-			sameSite: 'strict',
-			maxAge: 60 * 60 * 24
-		});
-		cookies.set('refresh_token', tokens.refreshToken(), {
-			httpOnly: true,
-			path: '/',
-			secure: true,
-			sameSite: 'strict',
-			maxAge: 60 * 60 * 24
-		});
+		cookies.set('access_token', tokens.accessToken(), { ...DefaultCookieOptions, httpOnly: false });
+		cookies.set('refresh_token', tokens.refreshToken(), { ...DefaultCookieOptions, path: '/' });
 
 		return json({
 			access_token: tokens.accessToken()
 		});
 	} catch (e) {
 		console.error('Error refreshing token:', e);
-		return json({ error: 'token_refresh_failed' }, { status: 401 });
+		return json(
+			{
+				error: 'token_refresh_failed',
+				message: e?.message || 'An error occurred while refreshing the token.'
+			},
+			{ status: 401 }
+		);
 	}
 };

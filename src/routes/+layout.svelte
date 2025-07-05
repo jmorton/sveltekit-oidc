@@ -4,6 +4,7 @@
 	import { onMount } from 'svelte';
 	import { accessToken } from '$lib/stores/auth';
 	import { page } from '$app/state';
+	import TokenRefresh from '$lib/components/TokenRefresh.svelte';
 
 	accessToken.set(page.data.access_token);
 
@@ -46,6 +47,9 @@
 
 	<div class="mt-4 rounded bg-white p-4 shadow dark:bg-gray-800">
 		<slot></slot>
+	</div>
+	<div>
+		<TokenRefresh></TokenRefresh>
 	</div>
 	<div class="mt-6 flex items-center justify-between">
 		<button
