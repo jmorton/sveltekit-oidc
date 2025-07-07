@@ -15,14 +15,14 @@ export const load: PageServerLoad = async ({ cookies, url }) => {
 	const back = url.searchParams.get('back') || '/';
 	cookies.set('back', back, {
 		httpOnly: true,
-		path: '/auth'
+		path: '/'
 	});
 
 	// Generate a code verifier and store it in a cookie
 	const verifier = arctic.generateCodeVerifier();
 	cookies.set('verifier', verifier, {
 		httpOnly: true,
-		path: '/auth',
+		path: '/',
 		secure: true,
 		sameSite: 'lax',
 		maxAge: 300
@@ -44,7 +44,7 @@ export const load: PageServerLoad = async ({ cookies, url }) => {
 		cookies.set('oidc_state', state, {
 			httpOnly: true,
 			sameSite: 'lax',
-			path: '/auth',
+			path: '/',
 			secure: true,
 			maxAge: 300
 		});

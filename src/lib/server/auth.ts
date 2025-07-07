@@ -8,8 +8,11 @@ import {
 	OIDC_WELL_KNOWN_URL,
 	OIDC_CLIENT_ID,
 	OIDC_CLIENT_SECRET,
-	OIDC_REDIRECT_URI
+	OIDC_REDIRECT_URI,
+	OIDC_AUTHORIZATION_URL,
+	OIDC_TOKEN_URL
 } from '$env/static/private';
+import { accessToken } from '$lib/stores/auth';
 
 /**
  * Initialize an OAuth2 client and fetches the OIDC configuration.
@@ -21,7 +24,11 @@ import {
  * @returns An initialized OAuth2 client and the OIDC configuration.
  */
 export async function init(): Promise<{ client: arctic.OAuth2Client; config: any }> {
-	const config = await fetch(OIDC_WELL_KNOWN_URL).then((res) => res.json());
+	// const config = await fetch(OIDC_WELL_KNOWN_URL).then((res) => res.json());
+	const config = {
+		authorization_endpoint: OIDC_AUTHORIZATION_URL,
+		token_endpoint: OIDC_TOKEN_URL
+	}
 	const client = new arctic.OAuth2Client(OIDC_CLIENT_ID, OIDC_CLIENT_SECRET, OIDC_REDIRECT_URI);
 	return { client, config };
 }
@@ -54,4 +61,32 @@ export function decode(cookies: Cookies): {
 		console.error('Error decoding access token:', error);
 		return {};
 	}
+}
+
+export async function authorize(cookies: Cookies, rule: Function, opts: any = {}) {
+	// TBD: check audience, issuer, signature...
+	let decoded: any = decode(cookies);
+	if (opts.refresh === 'force' || stale(decoded.access_token) && fresh(decoded.refresh_token)) {
+		decoded = await refresh(decoded.refresh_token);
+	}
+	let result = rule(decoded);
+	if (result)
+		return { ...decoded, result }
+	else
+		throw redirect(403, '/auth/login')
+}
+
+function fresh(token: JwtPayload | null | undefined) {
+	return !stale(token);
+}
+
+function stale(token: JwtPayload | null | undefined) {
+	// check if the refresh_to
+	return false;
+}
+
+async function refresh(refreshToken) {
+	// if this is not a refresh token, laugh. point. bail.
+	const { client, config } = await init();
+	return await client.refreshAccessToken(config.token_endpoint, refreshToken, ["openid profile email"]);
 }

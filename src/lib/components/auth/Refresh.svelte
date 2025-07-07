@@ -24,6 +24,7 @@
 
 	let refreshing: ReturnType<typeof setTimeout> | null = null;
 	let ticking: ReturnType<typeof setInterval> | null = null;
+
 	let countdown: string = $state('');
 
 	$effect(() => {

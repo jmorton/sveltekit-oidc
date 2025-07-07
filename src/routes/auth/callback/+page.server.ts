@@ -38,12 +38,12 @@ export const load: PageServerLoad = async ({ cookies, url }) => {
 		// The max age of the acces token is set to the expiration time of the token
 		cookies.set('id_token', tokens.idToken(), { path: '/' });
 		cookies.set('access_token', tokens.accessToken(), { path: '/' });
-		cookies.set('refresh_token', tokens.refreshToken(), { path: '/auth' });
+		cookies.set('refresh_token', tokens.refreshToken(), { path: '/' });
 
 		// Cleanup cookies used for the OIDC flow.
-		cookies.delete('verifier', { path: '/auth' });
-		cookies.delete('back', { path: '/auth' });
-		cookies.delete('oidc_state', { path: '/auth' });
+		cookies.delete('verifier', { path: '/' });
+		cookies.delete('back', { path: '/' });
+		cookies.delete('oidc_state', { path: '/' });
 	} catch (err) {
 		throw error(500, `Failed to handle OIDC callback: ${err}`);
 	}

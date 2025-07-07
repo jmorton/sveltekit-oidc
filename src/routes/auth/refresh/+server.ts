@@ -25,7 +25,7 @@ export const POST = async ({ cookies }) => {
 
 		cookies.set('id_token', tokens.accessToken(), { path: '/' });
 		cookies.set('access_token', tokens.accessToken(), { path: '/' });
-		cookies.set('refresh_token', tokens.refreshToken(), { path: '/auth' });
+		cookies.set('refresh_token', tokens.refreshToken(), { path: '/' });
 
 		return json({
 			access_token: tokens.accessToken(),
