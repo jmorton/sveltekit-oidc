@@ -1,9 +1,14 @@
-import type { JwtPayload } from "jwt-decode";
+import type { DecodedAuthTokenSet, Rule } from "$lib/types/auth"; 
 
-export const alwaysTrue = (accessToken: JwtPayload): true | false => {
-        return true;
-    };
+/* eslint-disable @typescript-eslint/no-unused-vars */
+export const alwaysTrue: Rule = (_: DecodedAuthTokenSet): true | false => {
+    return true;
+};
 
-export default {
-    alwaysTrue
-}
+export const allPresent: Rule = (tokens: DecodedAuthTokenSet) => {
+    const { decoded_access_token, decoded_id_token, decoded_refresh_token } = tokens
+    console.log(decoded_access_token);
+    return decoded_access_token !== null 
+                && decoded_id_token !== null 
+                && decoded_refresh_token !== null
+};

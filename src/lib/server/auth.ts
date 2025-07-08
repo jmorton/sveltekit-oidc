@@ -1,15 +1,18 @@
 import { redirect, type Cookies } from '@sveltejs/kit';
 import * as arctic from 'arctic';
-import { jwtDecode, type JwtHeader } from 'jwt-decode';
-import { JwksClient } from 'jwks-rsa';
+import { jwtDecode } from 'jwt-decode';
 import jwt, { type GetPublicKeyOrSecret, type VerifyOptions } from 'jsonwebtoken'; 
 import {
 	OIDC_CLIENT_ID,
 	OIDC_REDIRECT_URI,
 	OIDC_AUTHORIZATION_URL,
-	OIDC_TOKEN_URL
+	OIDC_TOKEN_URL,
+	OIDC_AUDIENCE,
+	OIDC_ISSUER
 } from '$env/static/private';
-import type { ConfigType, CookieType, DecodedTokenType, RefreshOpts, RuleType } from '$lib/types/auth';
+import type { AuthorizeOpts, Config, Rule, AuthTokenSet, DecodedAuthTokenSet } from '$lib/types/auth';
+import { getAlgorithms, getKey, verifyJwt } from './keyMethods';
+import { fresh, stale } from './util';
 
 /**
  * Initialize an OAuth2 client and fetches the OIDC configuration.
@@ -21,7 +24,7 @@ import type { ConfigType, CookieType, DecodedTokenType, RefreshOpts, RuleType } 
  * @returns An initialized OAuth2 client and the OIDC configuration.
  */
 
-export async function init(): Promise<{ client: arctic.OAuth2Client; config: ConfigType }> {
+export async function init(): Promise<{ client: arctic.OAuth2Client; config: Config }> {
 	// const config = await fetch(OIDC_WELL_KNOWN_URL).then((res) => res.json());
 	const config = {
 		authorization_endpoint: OIDC_AUTHORIZATION_URL,
@@ -35,50 +38,37 @@ export async function init(): Promise<{ client: arctic.OAuth2Client; config: Con
  * Decodes the access and refresh tokens from cookies.
  *
  * @param cookies
- * @returns { access_token?: DecodedTokenType; refresh_token?: DecodedTokenType }
+ * @returns { access_token?: DecodedAuthToken; refresh_token?: DecodedAuthToken }
  */
-export function decode(access_cookie: CookieType, id_cookie: CookieType, refresh_cookie: CookieType): {
-	access_token: DecodedTokenType;
-	id_token: DecodedTokenType;
-	refresh_token: DecodedTokenType;
-} {
+export function decode(tokens: AuthTokenSet): DecodedAuthTokenSet {
 	try {
-		const access_token = access_cookie ? jwtDecode(access_cookie) : null;
-		const id_token = id_cookie ? jwtDecode(id_cookie) : null;
-		const refresh_token = refresh_cookie ? jwtDecode(refresh_cookie) : null;
-		console.log({ id_token });
+		const decoded_access_token = tokens.access_token ? jwtDecode(tokens.access_token) : null;
+		const decoded_id_token = tokens.id_token ? jwtDecode(tokens.id_token) : null;
+		const decoded_refresh_token = tokens.refresh_token ? jwtDecode(tokens.refresh_token) : null;
+		console.log({ decoded_id_token });
 		return {
-			access_token,
-			id_token,
-			refresh_token
+			decoded_access_token,
+			decoded_id_token,
+			decoded_refresh_token
 		};
 	} catch (error) {
 		console.error('Error decoding access token:', error);
 		return {
-			access_token: null,
-			id_token: null,
-			refresh_token: null,
+			decoded_access_token: null,
+			decoded_id_token: null,
+			decoded_refresh_token: null,
 		};
 	}
 }
 
-// made sense to curry this vs. define it in validate
-// TODO: extract to a different file
-const getJwksKey: (client: JwksClient) => GetPublicKeyOrSecret = (client: JwksClient) => {
-	return function(header: JwtHeader, callback) {
-		client.getSigningKey(header.kid, function(err, key) {
-			if (key) {
-				const signingKey = key.getPublicKey();
-				// const algorithm: jwt.Algorithm = key.alg as jwt.Algorithm;
-				// algorithms.splice(1, 0, algorithm);
-				callback(null, signingKey);
-			}
-			else {
-				console.error(err)
-				callback(err);
-			}
-		});
-	}
+
+// TODO: I'm not sure how to do this other than just via env variables. there _should_ be a smarter way to do this I'd think...maybe if there's an endpoint that describes the client?
+// 			said endpoint does exist but requires a token for access and we should be able to execute getAudience without a token...
+function getAudience(): [string | RegExp, ...(string | RegExp)[]] {
+	return JSON.parse(OIDC_AUDIENCE)
+}
+function getIssuer(): string {
+	return OIDC_ISSUER;
 }
 
 
@@ -87,36 +77,21 @@ const getJwksKey: (client: JwksClient) => GetPublicKeyOrSecret = (client: JwksCl
 // TODO: implement this to validate token authenticity
 // TODO: env vars
 // key should be bound BEFORE validate is called
-
-	// // https://www.npmjs.com/package/jsonwebtoken
-	// const client = new JwksClient({
-    //     jwksUri: "https://keycloak.shared-services.appdat.jsc.nasa.gov/auth/realms/ssmo-dev/protocol/openid-connect/certs" // env var
-	// });
+// NOTE: alternatively CAN use /realms/{realm}/protocol/openid-connect/token/introspect keycloak endpoint...
 export async function validate(access_token: string, key: jwt.Secret | jwt.PublicKey | GetPublicKeyOrSecret) {
-	// am I the intended audience for this token?
-	const audience: [string | RegExp, ...(string | RegExp)[]] = [
-		'ssmo-dev-missions-mms-aerie',
-	] 
+	// get the audience and issuer
+	const audience: [string | RegExp, ...(string | RegExp)[]] = getAudience();
+	const issuer: string = getIssuer();
 
-	// check is the issuer one we are familiar with?
-	const issuer: string = 'https://keycloak.shared-services.appdat.jsc.nasa.gov/auth/realms/ssmo-dev'
+	// get the algorithms, ideally from the remote endpoint for decoding purpose?
+	const algorithms: jwt.Algorithm[] = await getAlgorithms(access_token);
 
-	// set a default value for the algorithm, but we CAN get it from the key
-	// TODO: figure out how to do this correctly
-	const algorithms: jwt.Algorithm[] = ['RS256']
+	// compile VerifyOptions
+	const options: VerifyOptions = { audience, issuer, algorithms }
 
-	const verifyJwt = async function(token: string, options: VerifyOptions = {}): Promise<string | jwt.Jwt | jwt.JwtPayload> {
-		return new Promise((resolve, reject) => {
-			// is the signature, audience, and issuer (see options) correct?
-			jwt.verify(token, key, options, (err, decoded) => {
-				if (err || decoded === undefined) return reject(err);
-				resolve(decoded);
-			});
-		});
-	}
-
+	// is the signature, audience, and issuer (see options) correct?
 	try {
-		const jwtPayload = await verifyJwt(access_token, { algorithms, audience, issuer });
+		const jwtPayload = await verifyJwt(key)(access_token, options);
 		console.log('JWT payload:', jwtPayload);
 		return {jwtErrorMessage: '', jwtPayload: jwtPayload}
 	} catch (err) {
@@ -125,71 +100,59 @@ export async function validate(access_token: string, key: jwt.Secret | jwt.Publi
 }
 
 // TODO: define a type for tuple of access_token, id_token, refresh_token
-function extractAuthTokens(cookies: Cookies): {
-	access_cookie: CookieType,
-	id_cookie: CookieType,
-	refresh_cookie: CookieType
-} {
-	const access_cookie = cookies.get('access_token') || null;
-	const id_cookie = cookies.get('id_token') || null;
-	const refresh_cookie = cookies.get('refresh_token') || null;
+function extractAuthCookies(cookies: Cookies): AuthTokenSet {
+	const access_token = cookies.get('access_token') || null;
+	const id_token = cookies.get('id_token') || null;
+	const refresh_token = cookies.get('refresh_token') || null;
 
 	// TODO: should we just throw an error if something is null? none of these should be missing...
 	return {
-		access_cookie,
-		id_cookie,
-		refresh_cookie
+		access_token,
+		id_token,
+		refresh_token
 	}
 }
 
-function getKey() {
-	// get key from env vars
+export async function authorize(cookies: Cookies, rule: Rule, opts: AuthorizeOpts = { refresh: 'auto'}): Promise<AuthTokenSet> {
+	// extract cookies
+	let tokens: AuthTokenSet = extractAuthCookies(cookies)
 
-	// return it
-}
-
-export async function authorize(cookies: Cookies, rule: RuleType, opts: {refresh: RefreshOpts} = { refresh: 'auto'}) {
-	let access_cookie: CookieType, id_cookie: CookieType, refresh_cookie: CookieType
-	({ access_cookie, id_cookie, refresh_cookie } = extractAuthTokens(cookies));
-
-	// optionally refresh, if we want to on reload
-	if (opts.refresh === 'always' || stale(access_cookie) && fresh(refresh_cookie)) {
-		// we know refresh_cookie is not null now, because it is fresh. unfortunately that syntactic sugar means we must cast.
-		({ access_cookie, id_cookie, refresh_cookie } = await refresh(refresh_cookie as string));
+	// refresh, if needed
+	if ((opts.refresh === 'always' || stale(tokens.access_token)) && fresh(tokens.refresh_token)) {
+		// if refresh_token is fresh, we can cast it as a string because it is not null.
+		tokens = await refresh(tokens.refresh_token as string);
 	}
 
-	// validate them
-	const validated = await validate(access_token, getKey());
+	// validate access_token
+	if (fresh(tokens.access_token) && await validate(tokens.access_token as string, getKey())) {
+		const decoded_tokens = decode(tokens)
 
-	if (validated.jwtPayload) {
-		const { access_token, id_token, refresh_token} = decode(access_cookie, id_cookie, refresh_cookie);
-		const result = rule(access_token, id_token, refresh_token); // check some rule on the tokens, i.e. all present or none present...
-		if (result)
-			return { access_token, id_token, refresh_token, result }
-		else
-			throw redirect(403, '/auth/login')
+		// check the rule
+		const result: boolean = rule(decoded_tokens)
+		if (result) {
+			// return the tokens
+			return tokens
+		}
+		else {
+			// check the rule, if its false, fail
+			console.error(`Rule evaluation over "${decoded_tokens}" failed...returning to login.`)
+		}
 	}
 	else {
-		throw redirect(403, '/auth/login') // IS THIS GOOD?
+		// token is invalid, fail
+		console.error(`Validation of access token "${tokens.access_token}" failed...returning to login.`)
 	}
-}
-
-function fresh(token: CookieType) {
-	return !stale(token);
-}
-
-function stale(token: CookieType) {
-	return token && token.length > 0;
+	throw redirect(403, '/auth/login')
 }
 
 // TODO: universalize access_token vs. accessToken (snake_case vs. camelCase)
-async function refresh(refreshToken: string): Promise<{ access_cookie: string, id_cookie: string, refresh_cookie: string }> {
-	// if this is not a refresh token, laugh. point. bail.
+async function refresh(refreshToken: string): Promise<AuthTokenSet> {
+	// TODO: add refresh token validation? entirely clientside...we would add a nonce value when it's retrieved and check it here
 	const { client, config } = await init();
 	const tokens = await client.refreshAccessToken(config.token_endpoint, refreshToken, ["openid profile email"]);
 	return {
-		access_cookie: tokens.accessToken(),
-		id_cookie: tokens.idToken(),
-		refresh_cookie: tokens.refreshToken()
+		access_token: tokens.accessToken(),
+		id_token: tokens.idToken(),
+		refresh_token: tokens.refreshToken()
 	}
 }
