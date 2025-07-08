@@ -9,8 +9,6 @@
 	accessToken.set(page.data.access_token);
 	idToken.set(page.data.id_token);
 
-	export let data: {};
-
 	let darkMode = false;
 
 	onMount(() => {

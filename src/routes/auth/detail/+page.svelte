@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { accessToken, idToken } from '$lib/stores/auth';
-	export let data;
 
 	function expiresAt(token: any): Date | string {
 		if (token && token.exp) {
