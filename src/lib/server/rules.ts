@@ -1,3 +1,4 @@
+// use claims and url to make an auth decision
 import type { DecodedAuthTokenSet, Rule } from "$lib/types/auth"; 
 
 /* eslint-disable @typescript-eslint/no-unused-vars */

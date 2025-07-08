@@ -1,11 +1,11 @@
 <script lang="ts">
 	// When this component is mounted, it will set an interval to refresh the access token every 5 minutes.
 	import { onMount } from 'svelte';
-	import { accessToken, idToken } from '$lib/stores/auth';
+	import { access_token, id_token } from '$lib/stores/auth';
 	import { jwtDecode } from 'jwt-decode';
 
 	let expiresAt = $derived.by(() => {
-		return $accessToken?.exp ? new Date($accessToken.exp * 1000) : null;
+		return $access_token?.exp ? new Date($access_token.exp * 1000) : null;
 	});
 
 	let refreshAt = $derived.by(() => {
@@ -68,8 +68,8 @@
 		const res = await fetch('/auth/refresh', { method: 'POST' });
 		if (res.ok) {
 			const data = await res.json();
-			accessToken.set(jwtDecode(data.access_token));
-			idToken.set(jwtDecode(data.id_token));
+			access_token.set(jwtDecode(data.access_token));
+			id_token.set(jwtDecode(data.id_token));
 			console.log('Tokens refreshed successfully');
 		} else if (res.status === 401) {
 			console.error('Unauthorized: Access token refresh failed. Please log in again.');

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { accessToken, idToken } from '$lib/stores/auth';
+	import { access_token, id_token } from '$lib/stores/auth';
 
 	function expiresAt(token: any): Date | string {
 		if (token && token.exp) {
@@ -15,13 +15,13 @@
 <div class="items-top flex justify-between">
 	<div class="prose-base mt-4">
 		<h3 class="text-xl font-bold">Access Token</h3>
-		<p class="text">Expires in: {expiresAt($accessToken)}</p>
-		<pre class="h-64 overflow-auto border p-4 text-xs">{JSON.stringify($accessToken, null, 2)}</pre>
+		<p class="text">Expires in: {expiresAt($access_token)}</p>
+		<pre class="h-64 overflow-auto border p-4 text-xs">{JSON.stringify($access_token, null, 2)}</pre>
 	</div>
 
 	<div class="prose-base mt-4">
 		<h3 class="text-xl font-bold">ID Token</h3>
-		<p class="text">Expires in: {expiresAt($idToken)}</p>
-		<pre class="h-64 overflow-auto border p-4 text-xs">{JSON.stringify($idToken, null, 2)}</pre>
+		<p class="text">Expires in: {expiresAt($id_token)}</p>
+		<pre class="h-64 overflow-auto border p-4 text-xs">{JSON.stringify($id_token, null, 2)}</pre>
 	</div>
 </div>

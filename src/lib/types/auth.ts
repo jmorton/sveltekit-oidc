@@ -1,4 +1,6 @@
+import type { VerifyOptions } from "jsonwebtoken";
 import type { JwtPayload } from "jwt-decode";
+import jwt from 'jsonwebtoken'; 
 
 // TODO: move this, or replace with env???
 // TODO: maybe try the env thing that gateway does?
@@ -29,6 +31,9 @@ export type JwtSecret = {
     // either key or jwk_url
     jwk_url?: string; 
     key?: string;
-  
+
     type: string;
-  };
+};
+
+export type VerifierFunction = (access_token: string, options: VerifyOptions) => Promise<string | jwt.Jwt | jwt.JwtPayload>
+  

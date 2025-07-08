@@ -3,7 +3,7 @@ console.log('The callback page handles OAuth2 callbacks from the identity provid
 import type { PageServerLoad } from './$types';
 import { redirect, error } from '@sveltejs/kit';
 import * as auth from '$lib/server/auth';
-import { accessToken } from '$lib/stores/auth';
+import { getKey } from '$lib/server/key';
 
 /**
  * The login page produces a code verifier and an authorization URL.
@@ -34,16 +34,22 @@ export const load: PageServerLoad = async ({ cookies, url }) => {
 		const tokens = await client.validateAuthorizationCode(config.token_endpoint, code, verifier);
 
 		// Check token validity.
+		const validated = await auth.validate(tokens.accessToken(), getKey())
+		if (validated.jwtPayload !== null) {
 
-		// The max age of the acces token is set to the expiration time of the token
-		cookies.set('id_token', tokens.idToken(), { path: '/' });
-		cookies.set('access_token', tokens.accessToken(), { path: '/' });
-		cookies.set('refresh_token', tokens.refreshToken(), { path: '/' });
+			// The max age of the acces token is set to the expiration time of the token
+			cookies.set('id_token', tokens.idToken(), { path: '/' });
+			cookies.set('access_token', tokens.accessToken(), { path: '/' });
+			cookies.set('refresh_token', tokens.refreshToken(), { path: '/' });
 
-		// Cleanup cookies used for the OIDC flow.
-		cookies.delete('verifier', { path: '/' });
-		cookies.delete('back', { path: '/' });
-		cookies.delete('oidc_state', { path: '/' });
+			// Cleanup cookies used for the OIDC flow.
+			cookies.delete('verifier', { path: '/' });
+			cookies.delete('back', { path: '/' });
+			cookies.delete('oidc_state', { path: '/' });
+		}
+		else {
+			throw error(500, `Failed to validate token ${tokens.accessToken()}`)
+		}
 	} catch (err) {
 		throw error(500, `Failed to handle OIDC callback: ${err}`);
 	}
@@ -51,6 +57,7 @@ export const load: PageServerLoad = async ({ cookies, url }) => {
 	throw redirect(302, back);
 };
 
+// TODO: ??????
 function check({
 	verifier,
 	code,

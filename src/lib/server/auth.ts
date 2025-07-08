@@ -1,17 +1,15 @@
 import { redirect, type Cookies } from '@sveltejs/kit';
 import * as arctic from 'arctic';
-import { jwtDecode } from 'jwt-decode';
+import { jwtDecode, type JwtPayload } from 'jwt-decode';
 import jwt, { type GetPublicKeyOrSecret, type VerifyOptions } from 'jsonwebtoken'; 
 import {
 	OIDC_CLIENT_ID,
 	OIDC_REDIRECT_URI,
 	OIDC_AUTHORIZATION_URL,
-	OIDC_TOKEN_URL,
-	OIDC_AUDIENCE,
-	OIDC_ISSUER
+	OIDC_TOKEN_URL
 } from '$env/static/private';
 import type { AuthorizeOpts, Config, Rule, AuthTokenSet, DecodedAuthTokenSet } from '$lib/types/auth';
-import { getAlgorithms, getKey, verifyJwt } from './keyMethods';
+import { getAlgorithms, getAudience, getIssuer, getKey, verifyJwt } from './key';
 import { fresh, stale } from './util';
 
 /**
@@ -61,24 +59,10 @@ export function decode(tokens: AuthTokenSet): DecodedAuthTokenSet {
 	}
 }
 
-
-// TODO: I'm not sure how to do this other than just via env variables. there _should_ be a smarter way to do this I'd think...maybe if there's an endpoint that describes the client?
-// 			said endpoint does exist but requires a token for access and we should be able to execute getAudience without a token...
-function getAudience(): [string | RegExp, ...(string | RegExp)[]] {
-	return JSON.parse(OIDC_AUDIENCE)
-}
-function getIssuer(): string {
-	return OIDC_ISSUER;
-}
-
-
-
-
 // TODO: implement this to validate token authenticity
 // TODO: env vars
-// key should be bound BEFORE validate is called
 // NOTE: alternatively CAN use /realms/{realm}/protocol/openid-connect/token/introspect keycloak endpoint...
-export async function validate(access_token: string, key: jwt.Secret | jwt.PublicKey | GetPublicKeyOrSecret) {
+export async function validate(access_token: string, key: jwt.Secret | jwt.PublicKey | GetPublicKeyOrSecret): Promise<{jwtErrorMessage: string, jwtPayload: string | jwt.Jwt | JwtPayload | null}> {
 	// get the audience and issuer
 	const audience: [string | RegExp, ...(string | RegExp)[]] = getAudience();
 	const issuer: string = getIssuer();
@@ -99,13 +83,11 @@ export async function validate(access_token: string, key: jwt.Secret | jwt.Publi
 	}
 }
 
-// TODO: define a type for tuple of access_token, id_token, refresh_token
 function extractAuthCookies(cookies: Cookies): AuthTokenSet {
 	const access_token = cookies.get('access_token') || null;
 	const id_token = cookies.get('id_token') || null;
 	const refresh_token = cookies.get('refresh_token') || null;
 
-	// TODO: should we just throw an error if something is null? none of these should be missing...
 	return {
 		access_token,
 		id_token,
@@ -113,6 +95,10 @@ function extractAuthCookies(cookies: Cookies): AuthTokenSet {
 	}
 }
 
+
+// This will...
+// 1. Automatically refresh tokens and update cookies
+// 2. Verify issuer, audience, and freshness of token
 export async function authorize(cookies: Cookies, rule: Rule, opts: AuthorizeOpts = { refresh: 'auto'}): Promise<AuthTokenSet> {
 	// extract cookies
 	let tokens: AuthTokenSet = extractAuthCookies(cookies)

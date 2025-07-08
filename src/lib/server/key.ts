@@ -1,6 +1,6 @@
-
-import { HASURA_GRAPHQL_JWT_SECRET } from '$env/static/private';
-import type { JwtSecret } from '$lib/types/auth';
+// key handling methods, all used in validate()
+import { HASURA_GRAPHQL_JWT_SECRET, OIDC_AUDIENCE, OIDC_ISSUER } from '$env/static/private';
+import type { JwtSecret, VerifierFunction } from '$lib/types/auth';
 import jwt, { type GetPublicKeyOrSecret, type VerifyOptions } from 'jsonwebtoken'; 
 import { JwksClient } from "jwks-rsa";
 import { type JwtHeader } from 'jwt-decode';
@@ -24,7 +24,6 @@ export function getKey(): jwt.Secret | jwt.PublicKey | GetPublicKeyOrSecret {
         throw Error('Misconfigured JWT Secret in .env. Please specify a jwk_url or a key.');
     }
 }
-
 
 // made sense to curry this vs. define it in validate
 const getJwksKey: (client: JwksClient) => GetPublicKeyOrSecret = (client: JwksClient) => {
@@ -81,14 +80,17 @@ function getJwksAlg(client: JwksClient, token: string): Promise<jwt.Algorithm> {
     })
 }
 
-
-
-
-
+// TODO: I'm not sure how to do this other than just via env variables. there _should_ be a smarter way to do this I'd think...maybe if there's an endpoint that describes the client?
+// 			said endpoint does exist but requires a token for access and we should be able to execute getAudience without a token...
+export function getAudience(): [string | RegExp, ...(string | RegExp)[]] {
+    return JSON.parse(OIDC_AUDIENCE)
+}
+export function getIssuer(): string {
+    return OIDC_ISSUER;
+}
 
 // curried this so that it wouldn't have to be defined in validate, but we need to access key...
-type VerifierFunction = (access_token: string, options: VerifyOptions) => Promise<string | jwt.Jwt | jwt.JwtPayload>
-export const verifyJwt: (key: jwt.Secret | jwt.PublicKey | GetPublicKeyOrSecret) => VerifierFunction  = (key: jwt.Secret | jwt.PublicKey | GetPublicKeyOrSecret) => {
+export const verifyJwt: (key: jwt.Secret | jwt.PublicKey | GetPublicKeyOrSecret) => VerifierFunction = (key: jwt.Secret | jwt.PublicKey | GetPublicKeyOrSecret) => {
 	return async function(token: string, options: VerifyOptions = {}): Promise<string | jwt.Jwt | jwt.JwtPayload> {
 		return new Promise((resolve, reject) => {
 			// is the signature, audience, and issuer (see options) correct?
