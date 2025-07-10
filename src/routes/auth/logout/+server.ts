@@ -5,8 +5,8 @@ export const POST = async ({ cookies }) => {
 
 	// Do you want to invalidate the session on the OIDC server?
 
-	cookies.delete('access_token', { path: '/' });
-	cookies.delete('id_token', { path: '/' });
-	cookies.delete('refresh_token', { path: '/' });
+	cookies.delete('accessToken', { path: '/' });
+	cookies.delete('idToken', { path: '/' });
+	cookies.delete('refreshToken', { path: '/' });
 	throw redirect(302, '/');
 };

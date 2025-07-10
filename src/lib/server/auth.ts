@@ -1,144 +1,256 @@
-import { redirect, type Cookies } from '@sveltejs/kit';
+import { error, type RequestEvent } from '@sveltejs/kit';
 import * as arctic from 'arctic';
-import { jwtDecode, type JwtPayload } from 'jwt-decode';
-import jwt, { type GetPublicKeyOrSecret, type VerifyOptions } from 'jsonwebtoken'; 
-import {
-	OIDC_CLIENT_ID,
-	OIDC_REDIRECT_URI,
-	OIDC_AUTHORIZATION_URL,
-	OIDC_TOKEN_URL
-} from '$env/static/private';
-import type { AuthorizeOpts, Config, Rule, AuthTokenSet, DecodedAuthTokenSet } from '$lib/types/auth';
-import { getAlgorithms, getAudience, getIssuer, getKey, verifyJwt } from './key';
-import { fresh, stale } from './util';
+import jwt, { type JwtHeader, type JwtPayload } from 'jsonwebtoken';
+import * as env from '$env/static/private';
+import type { MaybeToken, Rule } from '$lib/types/auth';
+import { JwksClient } from 'jwks-rsa';
 
-/**
- * Initialize an OAuth2 client and fetches the OIDC configuration.
- *
- * @async
- * @function init
- * @returns {Promise<{ client: arctic.OAuth2Client, config: any }>}
- *
- * @returns An initialized OAuth2 client and the OIDC configuration.
- */
-
-export async function init(): Promise<{ client: arctic.OAuth2Client; config: Config }> {
-	// const config = await fetch(OIDC_WELL_KNOWN_URL).then((res) => res.json());
-	const config = {
-		authorization_endpoint: OIDC_AUTHORIZATION_URL,
-		token_endpoint: OIDC_TOKEN_URL
-	}
-	const client = new arctic.OAuth2Client(OIDC_CLIENT_ID, null, OIDC_REDIRECT_URI);
-	return { client, config };
+const DEFAULT_VERIFY_OPTS: jwt.VerifyOptions = {
+	ignoreExpiration: false,
+	algorithms: ['RS256'],
+	issuer: env.OIDC_ISSUER,
 }
 
 /**
- * Decodes the access and refresh tokens from cookies.
+ * Verify can safely be to check raw token values.
  *
- * @param cookies
- * @returns { access_token?: DecodedAuthToken; refresh_token?: DecodedAuthToken }
+ * It catches all errors and returns null if the token is not valid. This is intentional.
+ * It allows us to use this function in hooks and endpoints without having to worry about
+ * try/catch blocks everywhere.
+ *
+ * @param token - The raw base64 encoded JWT token to verify. If null, the function will return null.
+ * @param opts - Verification options to pass to jsonwebtoken. Defaults to sensible defaults.
+ * @returns {Promise<jwt.JwtPayload | null>} The decoded token payload or null if the token is invalid.
  */
-export function decode(tokens: AuthTokenSet): DecodedAuthTokenSet {
+export async function verify(token: string | null, opts: jwt.VerifyOptions = DEFAULT_VERIFY_OPTS): Promise<jwt.JwtPayload | null> {
+	if (!token) return null;
 	try {
-		const decoded_access_token = tokens.access_token ? jwtDecode(tokens.access_token) : null;
-		const decoded_id_token = tokens.id_token ? jwtDecode(tokens.id_token) : null;
-		const decoded_refresh_token = tokens.refresh_token ? jwtDecode(tokens.refresh_token) : null;
-		console.log({ decoded_id_token });
-		return {
-			decoded_access_token,
-			decoded_id_token,
-			decoded_refresh_token
-		};
-	} catch (error) {
-		console.error('Error decoding access token:', error);
-		return {
-			decoded_access_token: null,
-			decoded_id_token: null,
-			decoded_refresh_token: null,
-		};
+		return await new Promise((resolve, reject) => {
+			jwt.verify(token, cached_verifier, opts, (err, decoded) => {
+				if (err) {
+					reject(err);
+				} else {
+					resolve(decoded as jwt.JwtPayload || null);
+				}
+			});
+		});
+	} catch (err: any) {
+		console.debug('JWT verification failed:', err?.message);
+		return null;
 	}
-}
+};
 
-// TODO: implement this to validate token authenticity
-// TODO: env vars
-// NOTE: alternatively CAN use /realms/{realm}/protocol/openid-connect/token/introspect keycloak endpoint...
-export async function validate(access_token: string, key: jwt.Secret | jwt.PublicKey | GetPublicKeyOrSecret): Promise<{jwtErrorMessage: string, jwtPayload: string | jwt.Jwt | JwtPayload | null}> {
-	// get the audience and issuer
-	const audience: [string | RegExp, ...(string | RegExp)[]] = getAudience();
-	const issuer: string = getIssuer();
+const cached_verifier = await (async () => {
+	const jwksUri = env.OIDC_JWKS_URL;
 
-	// get the algorithms, ideally from the remote endpoint for decoding purpose?
-	const algorithms: jwt.Algorithm[] = await getAlgorithms(access_token);
+	// Case 1: There is a JWKS URI, so use it to fetch public keys.
+	const client = new JwksClient({ jwksUri })
 
-	// compile VerifyOptions
-	const options: VerifyOptions = { audience, issuer, algorithms }
+	// TBD: Does this cache?
+	return async function (header: JwtHeader, callback: Function) {
+		client.getSigningKey(header.kid, function (err, key) {
+			if (err) {
+				console.error(`Error fetching signing key for kid ${header.kid}:`, err);
+				throw new Error(`Error fetching signing key for kid ${header.kid}: ${err.message}`);
+			}
+			if (key) {
+				return callback(null, key.getPublicKey());
+			}
+			throw new Error(`No key or error provided for kid ${header.kid}. This indicates a potential issue in jsonwebtoken npm dependecy.`);
+		});
+	}
 
-	// is the signature, audience, and issuer (see options) correct?
+	// Case 2: There is a JWKS secret, so use that instead.
+	// TODO.
+
+	// Case 3: Misconfiguration. Complain bitterly.
+	// Also, TODO.
+})();
+
+/**
+ * Set `event.locals.tokens` with decoded and verified JWT access and id tokens.
+ *
+ * This handler **guarantees** that only valid tokens are set in locals.
+ *
+ * Refresh tokens are never verified or stored because a) they are not
+ * signed and b) they are never to be used in client-side code.
+ *
+ * If tokens are invalid, they are set to `null` in `event.locals.tokens`.
+ *
+ * @param {RequestEvent} event - The SvelteKit request event containing cookies.
+ */
+export async function handler(event: RequestEvent): Promise<void> {
+
+	// TBD:
+	// 1. Does refreshing the token here make sense?
+	// 2. Will setting locals cause cause problems with the client side refresh code?
+	// 3. How does this interact with /auth/callback and /auth/refresh?
+	//
+	// await refresh(event.cookies).catch((err) => {
+	// 	console.error('Error refreshing tokens:', err);
+	// });
+
 	try {
-		const jwtPayload = await verifyJwt(key)(access_token, options);
-		console.log('JWT payload:', jwtPayload);
-		return {jwtErrorMessage: '', jwtPayload: jwtPayload}
+		console.log('Decoding access and ID tokens from cookies');
+		const access = event.cookies.get('accessToken');
+		const accessToken = access ? await verify(access) : null;
+		const id = event.cookies.get('idToken');
+		const idToken = id ? await verify(id) : null;
+		event.locals.tokens = { accessToken, idToken }
 	} catch (err) {
-		return {jwtErrorMessage: 'JWT verification failed: ' + err, jwtPayload: null}
+		console.error('Error verifying tokens:', err);
+		event.locals.tokens = { accessToken: null, idToken: null };
 	}
 }
 
-function extractAuthCookies(cookies: Cookies): AuthTokenSet {
-	const access_token = cookies.get('access_token') || null;
-	const id_token = cookies.get('id_token') || null;
-	const refresh_token = cookies.get('refresh_token') || null;
+export class Client {
 
-	return {
-		access_token,
-		id_token,
-		refresh_token
-	}
-}
+	private static _instance: Client;
 
+	authorizationEndpoint: string;
+	tokenEndpoint: string;
+	redirectEndpoint: string;
+	jwksUri?: string;
+	audience?: string;
+	issuer?: string;
+	clientId?: string;
+	clientSecret?: string;
+	client: arctic.OAuth2Client;
 
-// This will...
-// 1. Automatically refresh tokens and update cookies
-// 2. Verify issuer, audience, and freshness of token
-export async function authorize(cookies: Cookies, rule: Rule, opts: AuthorizeOpts = { refresh: 'auto'}): Promise<AuthTokenSet> {
-	// extract cookies
-	let tokens: AuthTokenSet = extractAuthCookies(cookies)
-
-	// refresh, if needed
-	if ((opts.refresh === 'always' || stale(tokens.access_token)) && fresh(tokens.refresh_token)) {
-		// if refresh_token is fresh, we can cast it as a string because it is not null.
-		tokens = await refresh(tokens.refresh_token as string);
-	}
-
-	// validate access_token
-	if (fresh(tokens.access_token) && await validate(tokens.access_token as string, getKey())) {
-		const decoded_tokens = decode(tokens)
-
-		// check the rule
-		const result: boolean = rule(decoded_tokens)
-		if (result) {
-			// return the tokens
-			return tokens
+	private constructor(init?: Partial<Config>) {
+		Object.assign(this, init);
+		if (env.OIDC_WELL_KNOWN_URL) {
+			fetch(env.OIDC_WELL_KNOWN_URL)
+				.then((res) => res.json())
+				.then((data) => {
+					this.authorizationEndpoint ??= data.authorizationEndpoint;
+					this.tokenEndpoint ??= data.tokenEndpoint;
+					this.jwksUri ??= data.jwksUri;
+					this.issuer ??= data.issuer;
+					this.audience ??= data.audience;
+				}).catch((err) => {
+					console.error('Error fetching OIDC configuration:', err);
+				});
 		}
-		else {
-			// check the rule, if its false, fail
-			console.error(`Rule evaluation over "${decoded_tokens}" failed...returning to login.`)
-		}
+		this.authorizationEndpoint ??= env.OIDC_AUTHORIZATION_URL;
+		this.tokenEndpoint ??= env.OIDC_TOKEN_URL;
+		this.redirectEndpoint ??= env.OIDC_REDIRECT_URI;
+		this.jwksUri ??= env.OIDC_JWKS_URL;
+		this.issuer ??= env.OIDC_ISSUER;
+		this.audience ??= env.OIDC_AUDIENCE;
+		this.clientId ??= env.OIDC_CLIENT_ID;;
+		this.clientSecret ??= env.OIDC_CLIENT_PASSWORD;
+		this.client = new arctic.OAuth2Client(this.clientId, this.clientSecret, this.redirectEndpoint);
+		console.log(this);
 	}
-	else {
-		// token is invalid, fail
-		console.error(`Validation of access token "${tokens.access_token}" failed...returning to login.`)
+
+	static get instance() {
+		this._instance ??= new Client();
+		return this._instance;
 	}
-	throw redirect(403, '/auth/login')
+
+	async validateAuthorizationCode(code: string, verifier: string): Promise<any> {
+		if (!this.client) throw new Error('OAuth2 client not initialized');
+		return this.client.validateAuthorizationCode(this.tokenEndpoint, code, verifier);
+	}
+
+	createAuthorizationURLWithPKCE(): { verifier: string, state: string, authorizationUrl: URL } {
+		if (!this.client) throw new Error('OAuth2 client not initialized');
+		const scopes: string[] = ['openid', 'profile', 'email'];
+		const verifier: string = arctic.generateCodeVerifier();
+		const state: string = arctic.generateState();
+		const authorizationUrl: URL = this.client.createAuthorizationURLWithPKCE(
+			this.authorizationEndpoint,
+			state,
+			arctic.CodeChallengeMethod.S256,
+			verifier,
+			scopes
+		);
+		return { verifier, state, authorizationUrl }
+	}
+
+	refreshAccessToken(refreshToken: string): Promise<arctic.OAuth2Tokens> {
+		if (!this.client) throw new Error('OAuth2 client not initialized');
+		const scopes: string[] = ['openid', 'profile', 'email'];
+		return this.client.refreshAccessToken(this.tokenEndpoint, refreshToken, scopes);
+	}
+
 }
 
-// TODO: universalize access_token vs. accessToken (snake_case vs. camelCase)
-async function refresh(refreshToken: string): Promise<AuthTokenSet> {
-	// TODO: add refresh token validation? entirely clientside...we would add a nonce value when it's retrieved and check it here
-	const { client, config } = await init();
-	const tokens = await client.refreshAccessToken(config.token_endpoint, refreshToken, ["openid profile email"]);
-	return {
-		access_token: tokens.accessToken(),
-		id_token: tokens.idToken(),
-		refresh_token: tokens.refreshToken()
+///
+/// Helpers for guarding against unauthorized access.
+///
+
+type HasuraToken = JwtPayload & {
+	"https://hasura.io/jwt/claims": {
+		"x-hasura-allowed-roles": string[];
+		"x-hasura-default-role": string;
+		"x-hasura-user-id": string;
 	}
+}
+
+export type MaybeHasuraToken = HasuraToken | null | undefined;
+
+/**
+ * Helper function for +server.ts or +page.server.ts to enforce the existence of certain roles.
+ *
+ * @param token
+ * @returns
+ */
+export function roles(token: MaybeHasuraToken) {
+	if (!token) {
+		throw error(401, "No token found, you must be logged in to view this page");
+	}
+
+	// This is intentionally specific to Hasura claims... Other parts of the Aerie system
+	// rely on this to determine a user's roles. In theory, this could be factored out to use
+	// a jq or JSON path expression provided as an environment variable, but that adds a lot
+	// more sophistication than what we can handle right now.
+	let roles = token?.["https://hasura.io/jwt/claims"]?.["x-hasura-allowed-roles"];
+
+	// This error is intended to help people get their IdP configured properly. Without it
+	// people could present perfectly valid tokens and still get an error that tells them
+	// they don't have a role.
+	if (!roles) {
+		throw error(403, "Token is present but your IdP did not add Hasura claims 'https://hasura.io/jwt/claims'");
+	}
+
+	// We think it's ok to tell people the expected role without leaking sensitive security
+	// details.
+	return {
+		require: (role: string) => {
+			if (!roles.includes(role)) {
+				throw error(403, `Your token's roles do not include '${role}'`)
+			}
+		}
+	}
+};
+
+/*
+ * This function provides developers with a way to evaluate their own rule
+ * against an access token.
+ *
+ * It is **NOT** responsible for decoding the token, refreshing it, or
+ * validating it.
+ *
+ * https://svelte.dev/docs/kit/load#Implications-for-authentication
+ *
+ * There are a few possible strategies to ensure an auth check occurs before protected code.
+ *
+ * To prevent data waterfalls and preserve layout load caches:
+ *
+ * Use hooks to protect multiple routes before any load functions run
+ *
+ * Use auth guards directly in +page.server.js load functions for route specific protection
+ * Putting an auth guard in +layout.server.js requires all child pages to call
+ * await parent() before protected code. Unless every child page depends on
+ * returned data from await parent(), the other options will be more performant.
+ */
+export function enforce(accessToken: MaybeToken, rule: Rule): boolean {
+	// Any value other than 'true' is considered a failure. This is intentional.
+	if (rule(accessToken) === true) {
+		return true;
+	} else {
+		throw error(403, 'Unauthorized access: Rule evaluation failed');
+	};
 }

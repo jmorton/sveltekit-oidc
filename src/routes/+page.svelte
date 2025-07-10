@@ -7,8 +7,9 @@
 
 <ul>
 	<li><a href="/home">/home</a></li>
-	<li><a href="/home/foo">/home/foo</a></li>
-	<li><a href="/home/bar">/home/bar</a></li>
+	<li><a href="/home/foo">/home/foo</a> (admin only)</li>
+	<li><a href="/home/bar">/home/bar</a> (user only)</li>
+	<li><a href="/home/baz">/home/baz</a> (always fails)</li>
 </ul>
 
 <p>

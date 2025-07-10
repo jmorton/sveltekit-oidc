@@ -1,7 +1,8 @@
-import { allPresent } from '$lib/server/rules';
-import * as auth from '../../lib/server/auth';
+import { enforce } from '$lib/server/auth';
 
-
-export async function load({ cookies }) {
-	await auth.authorize(cookies, allPresent);
+export async function load({ locals }) {
+	enforce(locals.tokens.accessToken, (token: any) => {
+		const roles = token?.['resource_access']?.['ssmo-dev-missions-mms-aerie']?.['roles'];
+		return roles && roles.includes('aerie-user')
+	});
 }

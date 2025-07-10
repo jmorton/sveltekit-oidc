@@ -3,7 +3,6 @@ console.log('The callback page handles OAuth2 callbacks from the identity provid
 import type { PageServerLoad } from './$types';
 import { redirect, error } from '@sveltejs/kit';
 import * as auth from '$lib/server/auth';
-import { getKey } from '$lib/server/key';
 
 /**
  * The login page produces a code verifier and an authorization URL.
@@ -16,38 +15,43 @@ import { getKey } from '$lib/server/key';
  * 4. **Validate iss, aud, and exp claims** to ensure it is issued by the expected identity provider and is not expired.
  *
  */
-export const load: PageServerLoad = async ({ cookies, url }) => {
+export const load: PageServerLoad = async ({ cookies, url, locals }) => {
 	console.debug('/auth/callback load');
 
-	const { client, config } = await auth.init();
+	const client = auth.Client.instance;
 	const verifier = cookies.get('verifier') || '';
 	const code = url.searchParams.get('code');
 	const expectedState = cookies.get('oidc_state') || '';
 	const returnedState = url.searchParams.get('state');
 	const back = cookies.get('back') || '/';
 
+	if (!code) {
+		const errorMsg = url.searchParams.get('error_description') || 'No code provided';
+		throw error(400, `Authorization server returned an error: ${errorMsg}`);
+	}
+
 	try {
 		// Validate the state, verifier, and code.
-		const problems = check({ config, verifier, code, expectedState, returnedState });
+		const problems = check({ verifier, code, expectedState, returnedState });
 
 		// Exchange the code for tokens.
-		const tokens = await client.validateAuthorizationCode(config.token_endpoint, code, verifier);
+		const tokens = await client.validateAuthorizationCode(code, verifier)
 
 		// Check token validity.
-		const validated = await auth.validate(tokens.accessToken(), getKey())
-		if (validated.jwtPayload !== null) {
+		const accessJwt = await auth.verify(tokens.accessToken())
+		const idJwt = await auth.verify(tokens.accessToken())
 
-			// The max age of the acces token is set to the expiration time of the token
-			cookies.set('id_token', tokens.idToken(), { path: '/' });
-			cookies.set('access_token', tokens.accessToken(), { path: '/' });
-			cookies.set('refresh_token', tokens.refreshToken(), { path: '/' });
-
+		if (accessJwt && idJwt) {
+			cookies.set('idToken', tokens.idToken(), { path: '/' });
+			cookies.set('accessToken', tokens.accessToken(), { path: '/' });
+			cookies.set('refreshToken', tokens.refreshToken(), { path: '/' });
 			// Cleanup cookies used for the OIDC flow.
 			cookies.delete('verifier', { path: '/' });
 			cookies.delete('back', { path: '/' });
 			cookies.delete('oidc_state', { path: '/' });
 		}
 		else {
+			// hmm... not quite right... throw in a try... it'll work... but... bleh.
 			throw error(500, `Failed to validate token ${tokens.accessToken()}`)
 		}
 	} catch (err) {
@@ -63,15 +67,7 @@ function check({
 	code,
 	expectedState,
 	returnedState
-}: {
-	config: {
-		token_endpoint: string;
-	};
-	verifier: string | null;
-	code: string | null;
-	expectedState: string | null;
-	returnedState: string | null;
-}) {
+}: any) {
 	const problems = new Set<string>();
 	expectedState || problems.add('Missing expected state');
 	returnedState || problems.add('Missing returned state');

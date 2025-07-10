@@ -1,13 +1,14 @@
 <script lang="ts">
 	import '../app.css';
 	import { onMount } from 'svelte';
-	import { access_token, id_token } from '$lib/stores/auth';
+	import { accessToken, idToken } from '$lib/stores/auth';
 	import { page } from '$app/state';
 	import Auth from '$lib/components/auth/Nav.svelte';
 	import TokenRefresh from '$lib/components/auth/Refresh.svelte';
 
-	access_token.set(page.data.access_token);
-	id_token.set(page.data.id_token);
+	console.log("Setting token store from page.data");
+	accessToken.set(page.data.accessToken);
+	idToken.set(page.data.idToken);
 
 	let darkMode = false;
 
@@ -36,7 +37,7 @@
 	<div class="mt-4 flex items-center justify-between rounded bg-white p-4 shadow dark:bg-gray-800">
 		<div>
 			<h1 class="text-3xl font-bold text-blue-600 dark:text-white">
-				Hello, {$access_token?.name || 'Guest'}!
+				Hello, {$accessToken?.name || 'Guest'}!
 			</h1>
 		</div>
 		<div>

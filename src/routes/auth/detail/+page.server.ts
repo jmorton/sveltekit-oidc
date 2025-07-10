@@ -1,7 +1,7 @@
 import type { PageServerLoad } from './$types';
 import * as auth from '$lib/server/auth';
 
-export const load: PageServerLoad = async ({ cookies }) => {
+export const load: PageServerLoad = async ({ cookies, locals }) => {
 	console.debug('/auth/detail load');
 
 	// It is possible there is no verifier. The only time a verifier is set is
@@ -10,8 +10,6 @@ export const load: PageServerLoad = async ({ cookies }) => {
 	const verifier = cookies.get('verifier');
 
 	// Access and refresh tokens are present after the callback runs successfully.
-	const { access_token, id_token } = auth.decode(cookies);
-
 	// There is a risk to exposing the value of the refresh token in the client.
-	return { verifier, access_token, id_token };
+	return { verifier, accessToken: locals.tokens.accessToken, idToken: locals.tokens.idToken };
 };

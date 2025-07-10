@@ -1,8 +1,7 @@
-import { allPresent } from '$lib/server/rules';
-import * as auth from '../lib/server/auth';
-
-export async function load({ cookies }) {
-	await auth.authorize(cookies, allPresent);
-
-	// other stuff, not necessarily auth.
+export async function load({ locals }) {
+	console.log('/home/+layout.server.ts load');
+	return {
+		accessToken: locals?.tokens?.accessToken,
+		idToken: locals?.tokens?.idToken
+	}
 }
