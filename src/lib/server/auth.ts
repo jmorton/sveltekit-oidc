@@ -246,7 +246,7 @@ export function roles(token: MaybeHasuraToken) {
  * await parent() before protected code. Unless every child page depends on
  * returned data from await parent(), the other options will be more performant.
  */
-export function enforce(accessToken: MaybeToken, rule: Rule): boolean {
+export function enforce(accessToken: MaybeToken | MaybeHasuraToken, rule: Rule): boolean {
 	// Any value other than 'true' is considered a failure. This is intentional.
 	if (rule(accessToken) === true) {
 		return true;

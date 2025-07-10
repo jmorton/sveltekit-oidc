@@ -6,7 +6,7 @@
 	import Auth from '$lib/components/auth/Nav.svelte';
 	import TokenRefresh from '$lib/components/auth/Refresh.svelte';
 
-	console.log("Setting token store from page.data");
+	console.log('Setting token store from page.data');
 	accessToken.set(page.data.accessToken);
 	idToken.set(page.data.idToken);
 
@@ -37,7 +37,7 @@
 	<div class="mt-4 flex items-center justify-between rounded bg-white p-4 shadow dark:bg-gray-800">
 		<div>
 			<h1 class="text-3xl font-bold text-blue-600 dark:text-white">
-				Hello, {$accessToken?.name || 'Guest'}!
+				<a href="/">Hello, {$accessToken?.name || 'Guest'}!</a>
 			</h1>
 		</div>
 		<div>

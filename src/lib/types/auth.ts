@@ -1,6 +1,7 @@
 import type { Jwt, VerifyOptions } from "jsonwebtoken";
 import type { JwtPayload } from "jwt-decode";
 import jwt from 'jsonwebtoken';
+import type { MaybeHasuraToken } from "$lib/server/auth";
 
 // TODO: move this, or replace with env???
 // TODO: maybe try the env thing that gateway does?
@@ -29,7 +30,7 @@ export type MaybeTokenSet = {
     refreshToken?: MaybeToken
 }
 
-export type Rule = (token: MaybeToken) => boolean;
+export type Rule = (token?: MaybeToken | MaybeHasuraToken) => boolean;
 
 export type JwtSecret = {
     // either key or jwk_url
