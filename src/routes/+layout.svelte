@@ -60,3 +60,7 @@
 		</button>
 	</div>
 </div>
+
+<footer>
+	<div>Roles: {JSON.stringify(page.data.roles)}</div>
+</footer>

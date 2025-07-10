@@ -12,6 +12,7 @@ declare global {
 				accessToken: MaybeToken | MaybeHasuraToken;
 				idToken: MaybeToken;
 			};
+			roles: string[]
 		}
 		// interface PageData {}
 		// interface PageState {}

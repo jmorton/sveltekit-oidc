@@ -1,8 +1,8 @@
-import { error, type RequestEvent } from '@sveltejs/kit';
+import { error, type Config, type RequestEvent } from '@sveltejs/kit';
 import * as arctic from 'arctic';
-import jwt, { type JwtHeader, type JwtPayload } from 'jsonwebtoken';
+import jwt, { type Jwt, type JwtHeader } from 'jsonwebtoken';
 import * as env from '$env/static/private';
-import type { MaybeToken, Rule } from '$lib/types/auth';
+import type { MaybeToken, MaybeHasuraToken, Rule } from '$lib/types/auth';
 import { JwksClient } from 'jwks-rsa';
 
 const DEFAULT_VERIFY_OPTS: jwt.VerifyOptions = {
@@ -12,60 +12,19 @@ const DEFAULT_VERIFY_OPTS: jwt.VerifyOptions = {
 }
 
 /**
- * Verify can safely be to check raw token values.
- *
- * It catches all errors and returns null if the token is not valid. This is intentional.
- * It allows us to use this function in hooks and endpoints without having to worry about
- * try/catch blocks everywhere.
+ * Verify ensures raw token values are signed by the expected issuer and haven't expired.
  *
  * @param token - The raw base64 encoded JWT token to verify. If null, the function will return null.
  * @param opts - Verification options to pass to jsonwebtoken. Defaults to sensible defaults.
  * @returns {Promise<jwt.JwtPayload | null>} The decoded token payload or null if the token is invalid.
  */
-export async function verify(token: string | null, opts: jwt.VerifyOptions = DEFAULT_VERIFY_OPTS): Promise<jwt.JwtPayload | null> {
-	if (!token) return null;
-	try {
-		return await new Promise((resolve, reject) => {
-			jwt.verify(token, cached_verifier, opts, (err, decoded) => {
-				if (err) {
-					reject(err);
-				} else {
-					resolve(decoded as jwt.JwtPayload || null);
-				}
-			});
-		});
-	} catch (err: any) {
-		console.debug('JWT verification failed:', err?.message);
-		return null;
-	}
+export async function verify(token: string, opts: jwt.VerifyOptions = DEFAULT_VERIFY_OPTS): Promise<string | jwt.Jwt | jwt.JwtPayload> {
+	const client = new JwksClient({ jwksUri: env.OIDC_JWKS_URL });
+	const header = jwt.decode(token, { complete: true })?.header;
+	if (!header) throw new Error("Malformed token: no header present.");
+	const key = await client.getSigningKey(header.kid);
+	return jwt.verify(token, key.getPublicKey(), opts);
 };
-
-const cached_verifier = await (async () => {
-	const jwksUri = env.OIDC_JWKS_URL;
-
-	// Case 1: There is a JWKS URI, so use it to fetch public keys.
-	const client = new JwksClient({ jwksUri })
-
-	// TBD: Does this cache?
-	return async function (header: JwtHeader, callback: Function) {
-		client.getSigningKey(header.kid, function (err, key) {
-			if (err) {
-				console.error(`Error fetching signing key for kid ${header.kid}:`, err);
-				throw new Error(`Error fetching signing key for kid ${header.kid}: ${err.message}`);
-			}
-			if (key) {
-				return callback(null, key.getPublicKey());
-			}
-			throw new Error(`No key or error provided for kid ${header.kid}. This indicates a potential issue in jsonwebtoken npm dependecy.`);
-		});
-	}
-
-	// Case 2: There is a JWKS secret, so use that instead.
-	// TODO.
-
-	// Case 3: Misconfiguration. Complain bitterly.
-	// Also, TODO.
-})();
 
 /**
  * Set `event.locals.tokens` with decoded and verified JWT access and id tokens.
@@ -97,6 +56,7 @@ export async function handler(event: RequestEvent): Promise<void> {
 		const id = event.cookies.get('idToken');
 		const idToken = id ? await verify(id) : null;
 		event.locals.tokens = { accessToken, idToken }
+		event.locals.roles = accessToken?.["https://hasura.io/jwt/claims"]?.["x-hasura-allowed-roles"]
 	} catch (err) {
 		console.error('Error verifying tokens:', err);
 		event.locals.tokens = { accessToken: null, idToken: null };
@@ -110,7 +70,6 @@ export class Client {
 	authorizationEndpoint: string;
 	tokenEndpoint: string;
 	redirectEndpoint: string;
-	jwksUri?: string;
 	audience?: string;
 	issuer?: string;
 	clientId?: string;
@@ -135,7 +94,6 @@ export class Client {
 		this.authorizationEndpoint ??= env.OIDC_AUTHORIZATION_URL;
 		this.tokenEndpoint ??= env.OIDC_TOKEN_URL;
 		this.redirectEndpoint ??= env.OIDC_REDIRECT_URI;
-		this.jwksUri ??= env.OIDC_JWKS_URL;
 		this.issuer ??= env.OIDC_ISSUER;
 		this.audience ??= env.OIDC_AUDIENCE;
 		this.clientId ??= env.OIDC_CLIENT_ID;;
@@ -181,16 +139,6 @@ export class Client {
 /// Helpers for guarding against unauthorized access.
 ///
 
-type HasuraToken = JwtPayload & {
-	"https://hasura.io/jwt/claims": {
-		"x-hasura-allowed-roles": string[];
-		"x-hasura-default-role": string;
-		"x-hasura-user-id": string;
-	}
-}
-
-export type MaybeHasuraToken = HasuraToken | null | undefined;
-
 /**
  * Helper function for +server.ts or +page.server.ts to enforce the existence of certain roles.
  *
@@ -228,7 +176,7 @@ export function roles(token: MaybeHasuraToken) {
 
 /*
  * This function provides developers with a way to evaluate their own rule
- * against an access token.
+ * against an access token in +page.server.ts or +layout.server.ts
  *
  * It is **NOT** responsible for decoding the token, refreshing it, or
  * validating it.
@@ -246,7 +194,7 @@ export function roles(token: MaybeHasuraToken) {
  * await parent() before protected code. Unless every child page depends on
  * returned data from await parent(), the other options will be more performant.
  */
-export function enforce(accessToken: MaybeToken | MaybeHasuraToken, rule: Rule): boolean {
+export function enforce(accessToken: MaybeHasuraToken, rule: Rule): boolean {
 	// Any value other than 'true' is considered a failure. This is intentional.
 	if (rule(accessToken) === true) {
 		return true;
